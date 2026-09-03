@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "operation": "preflight",
+  "request_id": "11111111111111111111111111111111",
+  "operation_id": "22222222222222222222222222222222",
+  "plan_hash": "726731bae216901c49e5c48b054bdab21941d164dca71865752067fdec9a503a",
+  "app_version": "0.2.1",
+  "created_at": "2026-08-30T10:00:00+08:00",
+  "project": {
+    "id": "fixture-project",
+    "name": "一点筛图预检样例",
+    "source_root": "C:\\YidianSmoke"
+  },
+  "policy": {
+    "import_mode": "in_place",
+    "collection_mode": "none",
+    "write_xmp": false,
+    "protect_existing_rating_above": 3
+  },
+  "items": [
+    {
+      "item_id": "photo-new",
+      "source_path": "C:\\YidianSmoke\\photo-new.jpg",
+      "path_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "file_size": 101,
+      "modified_ns": 1788084000000000000,
+      "target_rating": 3,
+      "rating_tier": "primary",
+      "rating_reason": "primary_rank"
+    },
+    {
+      "item_id": "photo-update",
+      "source_path": "C:\\YidianSmoke\\photo-update.jpg",
+      "path_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "file_size": 102,
+      "modified_ns": 1788084000000000000,
+      "target_rating": 2,
+      "rating_tier": "coverage",
+      "rating_reason": "person_stage_gap"
+    },
+    {
+      "item_id": "photo-unchanged",
+      "source_path": "C:\\YidianSmoke\\photo-unchanged.jpg",
+      "path_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "file_size": 103,
+      "modified_ns": 1788084000000000000,
+      "target_rating": 1,
+      "rating_tier": "valuable",
+      "rating_reason": "valuable_alternative"
+    },
+    {
+      "item_id": "photo-protected",
+      "source_path": "C:\\YidianSmoke\\photo-protected.jpg",
+      "path_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "file_size": 104,
+      "modified_ns": 1788084000000000000,
+      "target_rating": 3,
+      "rating_tier": "primary",
+      "rating_reason": "primary_rank"
+    },
+    {
+      "item_id": "photo-invalid",
+      "source_path": "C:\\YidianSmoke\\photo-invalid.jpg",
+      "path_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "file_size": 105,
+      "modified_ns": 1788084000000000000,
+      "target_rating": 0,
+      "rating_tier": "waste",
+      "rating_reason": "technical_reject"
+    }
+  ]
+}

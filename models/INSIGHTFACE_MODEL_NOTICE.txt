@@ -1,0 +1,20 @@
+InsightFace buffalo_l model notice
+=================================
+
+This application includes selected pretrained model files from the official
+InsightFace buffalo_l model pack solely for non-commercial research use:
+
+- det_10g.onnx
+- w600k_r50.onnx
+- 2d106det.onnx
+- 1k3d68.onnx
+
+InsightFace states that its public pretrained models are available for
+non-commercial academic research purposes only. Commercial use requires
+separate authorization from InsightFace.
+
+Upstream: https://github.com/deepinsight/insightface
+Licensing: https://github.com/deepinsight/insightface/blob/master/server/LICENSING.md
+
+The application code and other model files may use different licenses. See
+THIRD_PARTY_MODELS.md next to the installed application resources.

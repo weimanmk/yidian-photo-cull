@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "plugin_id": "com.yidian.photocull.lightroom",
+  "name": "一点筛图",
+  "version": "0.2.1",
+  "sdk_minimum_version": "14.3",
+  "files": [
+    "Info.lua",
+    "Json.lua",
+    "PluginState.lua",
+    "InitPlugin.lua",
+    "ShutdownPlugin.lua",
+    "ManualCheck.lua",
+    "Bridge.lua",
+    "Receipt.lua",
+    "CatalogOperation.lua"
+  ]
+}

@@ -1,0 +1,138 @@
+{
+  "name": "yidian-photo-cull",
+  "version": "0.2.1",
+  "private": true,
+  "type": "module",
+  "description": "一点筛图 - 完全离线的 AI 图片筛选工作台",
+  "author": "weimanmk",
+  "license": "AGPL-3.0-only",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
+    "dev:renderer": "vite --host 127.0.0.1",
+    "dev:electron": "wait-on tcp:5173 && electron .",
+    "build": "tsc -b && vite build",
+    "build:backend": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/build-backend.ps1",
+    "build:backend:cuda": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/build-backend.ps1 -PythonPath .venv-cuda312/Scripts/python.exe",
+    "package:win": "npm run build && npm run build:backend && electron-builder --win nsis --publish never",
+    "package:win:cuda": "npm run build && npm run build:backend:cuda && electron-builder --win dir --publish never && npm run package:cuda:split",
+    "package:cuda:split": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/build-cuda-split-installer.ps1",
+    "verify:package": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/verify-release.ps1",
+    "verify:package:cuda": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/verify-release.ps1 -RequireCuda",
+    "verify:ui": "node scripts/verify-ui-contract.mjs",
+    "preview": "vite preview --host 127.0.0.1",
+    "test": "vitest run",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "@radix-ui/react-dialog": "^1.1.23",
+    "@radix-ui/react-dropdown-menu": "^2.1.24",
+    "@radix-ui/react-progress": "^1.1.16",
+    "@radix-ui/react-scroll-area": "^1.2.18",
+    "@radix-ui/react-separator": "^1.1.15",
+    "@radix-ui/react-slot": "^1.3.3",
+    "@radix-ui/react-tabs": "^1.1.21",
+    "@radix-ui/react-toggle-group": "^1.1.19",
+    "@radix-ui/react-tooltip": "^1.2.16",
+    "@tanstack/react-virtual": "^3.14.10",
+    "@vitejs/plugin-react": "latest",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "tailwind-merge": "^3.6.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.6",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "concurrently": "latest",
+    "electron": "latest",
+    "electron-builder": "26.15.3",
+    "jsdom": "^30.0.1",
+    "tailwindcss": "^4.3.3",
+    "typescript": "latest",
+    "vite": "latest",
+    "vitest": "latest",
+    "wait-on": "latest"
+  },
+  "build": {
+    "appId": "com.yidian.photocull",
+    "productName": "一点筛图",
+    "asar": true,
+    "compression": "maximum",
+    "npmRebuild": false,
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/backend/photocull-backend",
+        "to": "backend",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "models",
+        "to": "models",
+        "filter": [
+          "dinov2_small.onnx",
+          "scene_mobilenetv2.onnx",
+          "open-closed-eye.onnx",
+          "facial_expression_mobilefacenet.onnx",
+          "ediffiqa_tiny.onnx",
+          "yolov8n.onnx",
+          "person_detection_mediapipe.onnx",
+          "osnet_x0_25_msmt17.onnx",
+          "pose_landmarker_heavy.task",
+          "depth_anything_v2_vitl.onnx",
+          "buffalo_l/det_10g.onnx",
+          "buffalo_l/w600k_r50.onnx",
+          "buffalo_l/2d106det.onnx",
+          "buffalo_l/1k3d68.onnx",
+          "buffalo_l/meanshape_68.json",
+          "INSIGHTFACE_MODEL_NOTICE.txt"
+        ]
+      },
+      {
+        "from": "THIRD_PARTY_MODELS.md",
+        "to": "THIRD_PARTY_MODELS.md"
+      },
+      {
+        "from": "lightroom/YidianPhotoCull.lrplugin",
+        "to": "lightroom/YidianPhotoCull.lrplugin",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.svg",
+      "executableName": "一点筛图",
+      "artifactName": "一点筛图-${version}-Windows-Setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "一点筛图",
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}

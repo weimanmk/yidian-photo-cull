@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "request_id": "33333333333333333333333333333333",
+  "operation_id": "22222222222222222222222222222222",
+  "plan_hash": "726731bae216901c49e5c48b054bdab21941d164dca71865752067fdec9a503a",
+  "baseline_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "catalog_name": "YidianSmoke.lrcat",
+  "catalog_identity_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "started_at": "2026-08-30T10:01:00+08:00",
+  "finished_at": "2026-08-30T10:01:02+08:00",
+  "status": "complete",
+  "counts": {
+    "total": 5,
+    "new": 2,
+    "update": 1,
+    "unchanged": 1,
+    "protected": 1,
+    "invalid": 0,
+    "catalog_added": 2,
+    "pending_rating": 0,
+    "verified": 3,
+    "rolled_back": 0
+  },
+  "chunks": [
+    {
+      "chunk_id": "update-0001",
+      "status": "complete",
+      "counts": {"total": 1, "verified": 1},
+      "error_code": null
+    },
+    {
+      "chunk_id": "new-0001",
+      "status": "complete",
+      "counts": {"total": 2, "verified": 2},
+      "error_code": null
+    }
+  ],
+  "items": [
+    {
+      "item_id": "photo-new",
+      "path_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "action": "new",
+      "previous_rating": null,
+      "target_rating": 3,
+      "final_rating": 3,
+      "status": "verified"
+    },
+    {
+      "item_id": "photo-update",
+      "path_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "action": "update",
+      "previous_rating": 1,
+      "target_rating": 2,
+      "final_rating": 2,
+      "status": "verified"
+    },
+    {
+      "item_id": "photo-unchanged",
+      "path_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "action": "unchanged",
+      "previous_rating": 1,
+      "target_rating": 1,
+      "final_rating": 1,
+      "status": "unchanged"
+    },
+    {
+      "item_id": "photo-protected",
+      "path_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "action": "protected",
+      "previous_rating": 5,
+      "target_rating": 3,
+      "final_rating": 5,
+      "status": "protected"
+    },
+    {
+      "item_id": "photo-invalid",
+      "path_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "action": "new",
+      "previous_rating": null,
+      "target_rating": 0,
+      "final_rating": 0,
+      "status": "verified"
+    }
+  ],
+  "error_code": null,
+  "error_message": null
+}
