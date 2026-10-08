@@ -1,4 +1,4 @@
-import type { EngineSettings, ExportPlan, ExportReceipt, HealthResponse, LightroomBackendStatus, LightroomOperation, PhotoStars, ProjectSummary, ScanResults, ScanStatus } from './types'
+import type { IdentityCorrectionRequest, EngineSettings, ExportPlan, ExportReceipt, HealthResponse, LightroomBackendStatus, LightroomOperation, PhotoStars, ProjectSummary, ScanResults, ScanStatus } from './types'
 
 let baseUrl = 'http://127.0.0.1:8767'
 let apiToken = ''
@@ -34,6 +34,10 @@ export const api = {
   results: () => request<ScanResults>('/api/scan/results'),
   projects: () => request<ProjectSummary[]>('/api/projects'),
   loadProject: (projectId: string) => request<ScanResults>(`/api/projects/${encodeURIComponent(projectId)}`),
+  correctIdentities: (projectId: string, correction: IdentityCorrectionRequest) => request<ScanResults>(`/api/projects/${encodeURIComponent(projectId)}/identities/corrections`, {
+    method: 'POST',
+    body: JSON.stringify(correction),
+  }),
   settings: () => request<EngineSettings>('/api/settings'),
   updateSettings: (settings: Partial<EngineSettings>) => request<EngineSettings>('/api/settings', {
     method: 'PATCH',

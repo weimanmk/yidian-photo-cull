@@ -63,8 +63,8 @@ if (-not (Test-Path -LiteralPath (Join-Path $resolvedPluginPath "manifest.json")
 }
 $pluginManifestPath = Join-Path $resolvedPluginPath "manifest.json"
 $pluginManifest = [System.IO.File]::ReadAllText($pluginManifestPath, [System.Text.Encoding]::UTF8) | ConvertFrom-Json
-if ($pluginManifest.plugin_id -ne "com.yidian.photocull.lightroom" -or $pluginManifest.version -ne "0.2.1") {
-    throw "Plugin manifest must be com.yidian.photocull.lightroom version 0.2.1."
+if ($pluginManifest.plugin_id -ne "com.yidian.photocull.lightroom" -or $pluginManifest.version -ne "0.2.2") {
+    throw "Plugin manifest must be com.yidian.photocull.lightroom version 0.2.2."
 }
 
 Write-Output "Smoke root: $resolvedSmokeRoot"

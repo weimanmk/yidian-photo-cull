@@ -314,7 +314,18 @@ export interface ScanSummary {
   elapsed_seconds: number
 }
 
+export interface IdentityCorrectionRequest {
+  operation: 'merge' | 'split'
+  revision: number
+  person_ids: string[]
+  faces: { photo_id: string; face_id: string }[]
+}
+
 export interface ScanResults {
+  source_root?: string
+  identity_revision?: number
+  identity_rescan_required?: boolean
+  identity_correction_warnings?: string[]
   schema_version?: 1 | 2
   rating_migration_status?: 'native' | 'migrated' | 'legacy'
   lightroom_ready?: boolean
@@ -324,11 +335,11 @@ export interface ScanResults {
   created_at: string
   photos: PhotoResult[]
   groups: PhotoGroup[]
-  coverage?: CoverageReport
+  coverage?: CoverageReport | null
   summary: ScanSummary
   engine?: {
     version: string
-    coverage_guard?: CoverageReport
+    coverage_guard?: CoverageReport | null
     vlm_ai?: VlmRuntimeStatus & {
       applied?: boolean
       candidate_groups?: number

@@ -269,6 +269,7 @@ def select_person_stage_coverage(
                 for key in missing
                 for photo in candidates[key]
                 if photo.id not in primary_photo_ids and photo.id not in selected_photo_ids
+                and not photo.rating_locked
             }.values(),
             key=_sort_key,
         )

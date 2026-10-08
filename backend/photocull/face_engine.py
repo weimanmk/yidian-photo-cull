@@ -96,6 +96,7 @@ class FaceEngine:
         self._mean_shape: np.ndarray | None = None
         self._lock = RLock()
         self._error = ""
+        self._detection_diagnostics: dict[str, object] = {}
 
     @staticmethod
     def _pack_dir(root: Path | None) -> Path | None:
@@ -210,6 +211,7 @@ class FaceEngine:
                 "role": "aligned-face perceptual quality",
             },
             "missing_models": missing,
+            "detection": dict(self._detection_diagnostics),
             "error": self._error or None,
         }
 
@@ -238,6 +240,7 @@ class FaceEngine:
         photo_identifier: str,
         original_image: Image.Image | None = None,
     ) -> list[FaceObservation]:
+        self._detection_diagnostics = {"retry_attempted": False, "returned_faces": 0}
         if not self._ensure_loaded():
             return []
         try:
@@ -247,9 +250,42 @@ class FaceEngine:
             return []
 
         image_height, image_width = rgb.shape[:2]
+        self._detection_diagnostics["first_pass_faces"] = len(boxes)
+        # SCRFD's 640px pass can miss people in groups. Retry only when the
+        # first pass provides crowded/small-face evidence; retain its results
+        # if a fixed-shape model cannot accept the larger input.
+        detector_scale = 640.0 / max(image_width, image_height)
+        small_faces = bool(len(boxes) and np.median(np.minimum(
+            boxes[:, 2] - boxes[:, 0], boxes[:, 3] - boxes[:, 1]
+        )) * detector_scale < 48.0)
+        if len(boxes) >= 8 or small_faces:
+            self._detection_diagnostics["retry_attempted"] = True
+            try:
+                retry_rgb = rgb
+                if original_image is not None and max(original_image.size) > max(image_width, image_height):
+                    # Resize directly from original pixels, avoiding a second
+                    # interpolation of the analysis preview and full-size arrays.
+                    retry_image = original_image.copy()
+                    retry_image.thumbnail((1280, 1280), Image.Resampling.LANCZOS)
+                    retry_rgb = np.asarray(retry_image.convert("RGB"), dtype=np.uint8)
+                extra_boxes, extra_points, extra_scores = self._detect(retry_rgb, (1280, 1280))
+                scale = np.array([image_width / retry_rgb.shape[1], image_height / retry_rgb.shape[0]], dtype=np.float32)
+                extra_boxes = extra_boxes * np.tile(scale, 2)
+                extra_points = extra_points * scale
+                combined_boxes = np.concatenate((boxes, extra_boxes))
+                combined_points = np.concatenate((landmarks, extra_points))
+                combined_scores = np.concatenate((scores, extra_scores))
+                keep = self._nms(combined_boxes, combined_scores, 0.4)
+                # Preserve first-pass ordering where possible for cached face
+                # references; new detections follow in detector order.
+                keep.sort()
+                boxes, landmarks, scores = combined_boxes[keep], combined_points[keep], combined_scores[keep]
+                self._detection_diagnostics["retry_faces"] = len(extra_boxes)
+            except Exception as exc:
+                self._detection_diagnostics["retry_error"] = str(exc)
         image_area = float(image_height * image_width)
         observations: list[FaceObservation] = []
-        for index, (bbox, points5, confidence) in enumerate(zip(boxes[:24], landmarks[:24], scores[:24], strict=False)):
+        for index, (bbox, points5, confidence) in enumerate(zip(boxes, landmarks, scores, strict=False)):
             x1, y1, x2, y2 = self._clip_box(bbox, image_width, image_height)
             if x2 - x1 < 12 or y2 - y1 < 12:
                 continue
@@ -311,6 +347,8 @@ class FaceEngine:
                     fiqa_score=fiqa_score,
                 )
             )
+        self._detection_diagnostics["returned_faces"] = len(observations)
+        self._detection_diagnostics["filtered_faces"] = len(boxes) - len(observations)
         return observations
 
     def _expression(self, aligned_rgb: np.ndarray | None) -> tuple[str, float | None, float, float | None]:
@@ -434,7 +472,7 @@ class FaceEngine:
     def _nms(boxes: np.ndarray, scores: np.ndarray, threshold: float) -> list[int]:
         x1, y1, x2, y2 = boxes.T
         areas = np.maximum(0, x2 - x1) * np.maximum(0, y2 - y1)
-        order = scores.argsort()[::-1]
+        order = np.argsort(-scores, kind="stable")
         keep: list[int] = []
         while order.size:
             index = int(order[0])

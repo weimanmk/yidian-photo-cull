@@ -37,6 +37,7 @@ from .schemas import (
     ExportExecuteRequest,
     ExportPreflightRequest,
     ExportRequest,
+    IdentityCorrectionRequest,
     LightroomPreflightRequest,
     PhotoLabelRequest,
     PhotoRatingRequest,
@@ -163,8 +164,23 @@ def list_projects():
 def load_project(project_id: str):
     try:
         return scanner.load_project(project_id)
+    except ScanConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (OSError, ValueError, KeyError) as exc:
         raise HTTPException(status_code=404, detail="项目不存在或已损坏") from exc
+
+
+@app.post("/api/projects/{project_id}/identities/corrections")
+def correct_identities(project_id: str, payload: IdentityCorrectionRequest):
+    try:
+        return scanner.correct_identities(
+            project_id, payload.operation, payload.person_ids,
+            [face.model_dump() for face in payload.faces], payload.revision,
+        )
+    except ScanConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.patch("/api/photos/{photo_id}/label")
@@ -176,8 +192,11 @@ def label_photo(photo_id: str, payload: PhotoLabelRequest):
 
 @app.patch("/api/photos/{photo_id}/rating")
 def rate_photo(photo_id: str, payload: PhotoRatingRequest):
-    if not scanner.rate_photo(photo_id, payload.stars, locked=payload.locked):
-        raise HTTPException(status_code=404, detail="照片不存在")
+    try:
+        if not scanner.rate_photo(photo_id, payload.stars, locked=payload.locked):
+            raise HTTPException(status_code=404, detail="照片不存在")
+    except ScanConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"ok": True}
 
 

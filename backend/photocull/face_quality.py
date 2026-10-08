@@ -32,7 +32,7 @@ def select_quality_faces(faces: list[FaceObservation]) -> list[FaceObservation]:
         (face for face in candidates if face.area_ratio >= relative_floor),
         key=lambda face: (face.area_ratio, face.confidence),
         reverse=True,
-    )[:12]
+    )
 
 
 def _analysis_gray(image: Image.Image, maximum: int) -> np.ndarray:

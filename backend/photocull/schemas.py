@@ -70,3 +70,15 @@ class ExportExecuteRequest(BaseModel):
 
 class LightroomPreflightRequest(BaseModel):
     project_id: str = Field(min_length=1, max_length=160)
+
+
+class FaceReference(BaseModel):
+    photo_id: str = Field(min_length=1, max_length=160)
+    face_id: str = Field(min_length=1, max_length=160)
+
+
+class IdentityCorrectionRequest(BaseModel):
+    operation: Literal["merge", "split"]
+    revision: int = Field(ge=0)
+    person_ids: list[str] = Field(default_factory=list)
+    faces: list[FaceReference] = Field(default_factory=list)

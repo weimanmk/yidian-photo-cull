@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from copy import deepcopy
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -11,6 +12,7 @@ from typing import Any
 import numpy as np
 
 from .body_engine import BodyEngine
+from .audit import scan_provenance
 from .config import EngineSettings, settings_store
 from .depth_engine import DepthEngine
 from .eye_evidence import eye_evidence_status
@@ -19,6 +21,7 @@ from .face_quality import refine_face_quality
 from .feature_cache import FeatureCache
 from .grouping import group_similar_photos
 from .identity import IdentityClusterer
+from .identity_corrections import CorrectionStore, correct_faces, replay_corrections, replay_manual_ratings
 from .imaging import (
     build_descriptor,
     cached_images_exist,
@@ -42,7 +45,7 @@ from .scoring import prepare_group_ranking_features, rank_groups
 from .vlm import LlamaServerManager, review_groups_with_vlm
 
 
-FEATURE_PIPELINE_VERSION = "0.9.0"
+FEATURE_PIPELINE_VERSION = "0.10.0"
 ENGINE_VERSION = "0.9.0"
 
 
@@ -72,6 +75,7 @@ class ScannerService:
         rating_feature_provider: Any | None = None,
     ) -> None:
         self.projects = projects or ProjectStore()
+        self.corrections = CorrectionStore(self.projects)
         cache_path = None if projects is None else self.projects.root.parent / "cache.db"
         self.preference_model_path = None if projects is None else self.projects.root.parent / "preference-model.json"
         self.feature_cache = feature_cache or FeatureCache(cache_path)
@@ -183,8 +187,10 @@ class ScannerService:
         return candidate if candidate and candidate.is_file() else None
 
     def load_project(self, project_id: str) -> dict[str, Any]:
-        results, files = self.projects.load(project_id)
         with self._lock:
+            if self._thread and self._thread.is_alive():
+                raise ScanConflictError("扫描期间不能切换项目")
+            results, files = self.projects.load(project_id)
             self._results = results
             self._files = files
             self._status = {
@@ -198,6 +204,34 @@ class ScannerService:
                 "project_id": project_id,
             }
         return results
+
+    def correct_identities(self, project_id: str, operation: str, person_ids: list[str], faces: list[dict], revision: int) -> dict:
+        with self._lock:
+            if self._thread and self._thread.is_alive():
+                raise ScanConflictError("扫描期间不能修改人物身份")
+            if not self._results or self._results.get("project_id") != project_id:
+                raise ScanConflictError("当前项目已变化，请重新载入")
+            if int(self._results.get("identity_revision", 0)) != revision:
+                raise ScanConflictError("人物身份已更新，请刷新后重试")
+            updated = deepcopy(self._results)
+            correct_faces(updated, operation, person_ids, faces)
+            updated["identity_revision"] = revision + 1
+            updated["identity_rescan_required"] = True
+            updated["coverage"] = None
+            updated["rating_policy"] = None
+            updated.setdefault("engine", {})["coverage_guard"] = None
+            for photo in updated.get("photos", []):
+                photo["coverage_keys"] = []
+                photo["coverage_person_ids"] = []
+                photo["coverage_protected"] = False
+            photo_by_id = {p["id"]: p for p in updated["photos"]}
+            for group in updated.get("groups", []):
+                group["person_ids"] = sorted({person for pid in group["photo_ids"] for person in photo_by_id[pid]["person_ids"]})
+                group["coverage_protected"] = False
+            self._refresh_summary(updated, people=self._identity_count(updated["photos"]))
+            self.projects.save(project_id, updated, self._files)
+            self._results = updated
+            return updated
 
     def label_photo(self, photo_identifier: str, category: str, stars: int | None) -> bool:
         with self._lock:
@@ -252,6 +286,8 @@ class ScannerService:
         if stars not in TIER_BY_STAR:
             raise ValueError("人工星级必须是 0 到 3")
         with self._lock:
+            if self._thread and self._thread.is_alive():
+                raise ScanConflictError("扫描期间不能修改人工星级，请等待扫描完成")
             if not self._results:
                 return False
             target = next(
@@ -271,6 +307,9 @@ class ScannerService:
             target["is_best_pick"] = stars >= 2
             target["coverage_protected"] = False
             target["coverage_person_ids"] = []
+            self._results.setdefault("manual_ratings", {})[photo_identifier] = {
+                "stars": stars, "rating_locked": bool(locked),
+            }
 
             photo_by_id = {photo.get("id"): photo for photo in self._results.get("photos", [])}
             group = next(
@@ -307,6 +346,7 @@ class ScannerService:
     def _run(self, root: Path, settings: EngineSettings, cache_hit_previews: bool = True) -> None:
         started_at = time.monotonic()
         try:
+            decisions = self.corrections.load(str(root.resolve()))
             paths = discover_images(root, settings.recursive)
             if not paths:
                 raise ValueError("所选文件夹中没有支持的照片")
@@ -425,7 +465,8 @@ class ScannerService:
 
             good_photos = [photo for photo in photos if photo.width > 0]
             self._update(status="identifying", phase="人物识别", message="正在聚合同一人物的人脸向量", progress=76.0)
-            clusters = IdentityClusterer(settings.face_identity_threshold).assign(good_photos)
+            IdentityClusterer(settings.face_identity_threshold).assign(good_photos)
+            correction_warnings = replay_corrections(good_photos, decisions.get("identity_corrections", []))
 
             self._update(
                 status="grouping",
@@ -495,6 +536,7 @@ class ScannerService:
                 if photo.width == 0
             ]
             rating_groups = [*groups, *failed_groups]
+            replay_manual_ratings(photos, decisions.get("manual_ratings", {}))
             rating_report = assign_semantic_ratings(
                 rating_groups,
                 window_minutes=settings.coverage_window_minutes,
@@ -520,6 +562,15 @@ class ScannerService:
                 "project_id": project_id,
                 "project_name": f"{root.name} · {datetime.now():%m月%d日 %H:%M}",
                 "source_name": root.name,
+                "source_root": str(root.resolve()),
+                "identity_corrections": decisions.get("identity_corrections", []),
+                "identity_revision": decisions.get("identity_revision", 0),
+                "manual_ratings": decisions.get("manual_ratings", {}),
+                "identity_rescan_required": False,
+                "identity_correction_warnings": correction_warnings,
+                "scan_provenance": scan_provenance(settings=asdict(settings),
+                    feature_pipeline_version=FEATURE_PIPELINE_VERSION,
+                    pipeline_signature=pipeline_signature),
                 "created_at": created_at,
                 "engine": {
                     "version": ENGINE_VERSION,
@@ -547,7 +598,7 @@ class ScannerService:
                 "rating_policy": rating_report.public_dict(),
                 "summary": {},
             }
-            self._refresh_summary(results, elapsed=time.monotonic() - started_at, people=sum(len(cluster.photo_ids) >= 2 for cluster in clusters))
+            self._refresh_summary(results, elapsed=time.monotonic() - started_at, people=self._identity_count(results["photos"]))
             self.projects.save(project_id, results, self._files)
             with self._lock:
                 self._results = results
@@ -638,11 +689,19 @@ class ScannerService:
         }
 
     @staticmethod
+    def _identity_count(photos: list[dict]) -> int:
+        counts: dict[str, int] = {}
+        for photo in photos:
+            for person in set(photo.get("person_ids", [])):
+                counts[person] = counts.get(person, 0) + 1
+        return sum(count >= 2 for count in counts.values())
+
+    @staticmethod
     def _refresh_summary(results: dict[str, Any], elapsed: float | None = None, people: int | None = None) -> None:
         photos = results.get("photos", [])
         existing = results.get("summary", {})
-        coverage = results.get("coverage", {})
-        rating_policy = results.get("rating_policy", {})
+        coverage = results.get("coverage") or {}
+        rating_policy = results.get("rating_policy") or {}
         protected = sum(bool(photo.get("coverage_protected")) for photo in photos)
         star_counts = {
             stars: sum(int(photo.get("stars", 0)) == stars for photo in photos)

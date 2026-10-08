@@ -657,7 +657,7 @@ button:disabled {
   height: 100%;
   min-width: 0;
   min-height: 0;
-  grid-template-rows: 48px minmax(0, 1fr) 28px;
+  grid-template-rows: 48px minmax(0, 1fr) auto;
   color: var(--foreground);
   background: var(--background);
 }
@@ -1243,6 +1243,8 @@ button:disabled {
 }
 
 .results-statusbar {
+  flex-wrap: wrap;
+  min-height: 28px;
   display: flex;
   align-items: center;
   gap: 16px;

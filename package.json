@@ -1,6 +1,6 @@
 {
   "name": "yidian-photo-cull",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "type": "module",
   "description": "一点筛图 - 完全离线的 AI 图片筛选工作台",

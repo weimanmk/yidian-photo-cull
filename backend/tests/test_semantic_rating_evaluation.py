@@ -117,6 +117,14 @@ def test_evaluator_rejects_legacy_projects() -> None:
         module.evaluate_rating_set(result, manual_stems={"a"}, minimum_stars=3)
 
 
+def test_corrected_project_requires_rescan_before_semantic_evaluation():
+    result = payload()
+    result['rating_policy'] = None
+    result['identity_rescan_required'] = True
+    with pytest.raises(ValueError, match='重新扫描'):
+        load_script().evaluate_rating_set(result, manual_stems=set(), minimum_stars=3)
+
+
 def test_aggregate_markdown_reports_cross_event_freeze_guards() -> None:
     module = load_script()
     aggregate = {
@@ -150,3 +158,49 @@ def test_aggregate_markdown_reports_cross_event_freeze_guards() -> None:
     assert "活动A-iqa、活动B-iqa" in markdown
     assert "冻结模型一致：通过" in markdown
     assert "运行时拟合：无" in markdown
+
+
+def test_coverage_metric_is_recomputed_for_final_star_scope() -> None:
+    module = load_script()
+    result = payload()
+    result['rating_policy']['unresolved_coverage_keys'] = 0  # Scan metadata says covered by 2-star.
+    metrics = module.evaluate_rating_set(result, manual_stems=set(), minimum_stars=3)
+    assert metrics['person_stage_coverage'] == 0.0
+    assert metrics['unresolved_person_stage_keys'] == 1
+
+
+def test_report_distinguishes_evaluator_and_saved_scan_provenance(tmp_path) -> None:
+    import json
+    module = load_script()
+    project_file = tmp_path / 'project.json'
+    project_file.write_text(json.dumps(payload()))
+    reference = tmp_path / 'reference'
+    reference.mkdir()
+    (reference / 'A.jpg').write_bytes(b'')
+    model_file = Path(__file__).resolve().parents[1] / 'photocull/assets/rating_model_v1.json'
+    report = module.build_report(event_name='test', project_file=project_file,
+                                 reference_dir=reference, rating_model_file=model_file)
+    assert len(report['provenance']['evaluation_commit']) == 40
+    assert report['provenance']['scan_provenance'] is None
+    assert report['independent_pair_audit'] is None
+    assert report['cluster_metric_scope'] == 'stored_cluster_consistency_only'
+
+
+def test_aggregate_cannot_infer_saved_scan_model_from_current_evaluator(tmp_path) -> None:
+    import json
+    module = load_script()
+    project_file = tmp_path / 'project.json'
+    project_file.write_text(json.dumps(payload()))
+    reference = tmp_path / 'reference'
+    reference.mkdir()
+    model_file = Path(__file__).resolve().parents[1] / 'photocull/assets/rating_model_v1.json'
+    report = module.build_report(event_name='test', project_file=project_file,
+                                 reference_dir=reference, rating_model_file=model_file)
+    aggregate = module.aggregate_reports([report])
+    assert aggregate['same_evaluator_model'] is True
+    assert aggregate['same_frozen_model'] is None
+    assert aggregate['no_runtime_fit'] is None
+    assert aggregate['no_per_event_overrides'] is None
+    markdown = module.render_aggregate_markdown(aggregate)
+    assert '冻结模型一致：未知' in markdown
+    assert '运行时拟合：未知' in markdown
