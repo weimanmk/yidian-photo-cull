@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import tomllib
+
+from photocull import __version__
 
 from tests.lightroom_fixtures import PLUGIN_ROOT, all_plugin_source, plugin_file
 
@@ -24,11 +27,19 @@ def test_plugin_version_manifest_matches_release() -> None:
 
     assert manifest["schema_version"] == 1
     assert manifest["plugin_id"] == "com.yidian.photocull.lightroom"
-    assert manifest["version"] == "0.2.1"
+    assert manifest["version"] == "0.2.2"
+    root = PLUGIN_ROOT.parents[1]
+    package = json.loads((root / "package.json").read_text(encoding="utf-8"))
+    lock = json.loads((root / "package-lock.json").read_text(encoding="utf-8"))
+    backend = tomllib.loads((root / "backend/pyproject.toml").read_text(encoding="utf-8"))
+    assert manifest["version"] == package["version"] == lock["version"] == lock["packages"][""]["version"]
+    assert manifest["version"] == backend["project"]["version"] == __version__
+    assert f"const PLUGIN_VERSION = '{__version__}'" in (root / "electron/lightroom-service.cjs").read_text(encoding="utf-8")
+    assert f'version = "{__version__}"' in plugin_file("PluginState.lua")
     assert "VERSION = {" in info
     assert "major = 0" in info
     assert "minor = 2" in info
-    assert "revision = 1" in info
+    assert "revision = 2" in info
 
 
 def test_plugin_owns_single_background_watcher_and_shutdown_state() -> None:

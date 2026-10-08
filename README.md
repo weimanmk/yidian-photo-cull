@@ -82,7 +82,9 @@
 
 ## 🚀 下载与安装
 
-当前稳定版本：**v0.2.1**
+最新源码版本：**v0.2.2**（[源码发布与验证限制](https://github.com/weimanmk/yidian-photo-cull/releases/tag/v0.2.2)）。本次不含新 Windows 安装包。
+
+当前可下载安装包版本：**v0.2.1**
 
 [前往 GitHub Release 下载](https://github.com/weimanmk/yidian-photo-cull/releases/tag/v0.2.1)
 
@@ -167,7 +169,7 @@ flowchart LR
 
 ## 📷 Lightroom Classic
 
-要求 Windows 版 Lightroom Classic 14.3 或更高版本。插件标识为 `com.yidian.photocull.lightroom`，随 v0.2.1 安装包分发。
+要求 Windows 版 Lightroom Classic 14.3 或更高版本。插件标识为 `com.yidian.photocull.lightroom`，v0.2.1 安装包随附对应版本插件；当前源码中的插件版本为 v0.2.2。
 
 1. 打开要写入照片的 Lightroom 目录。
 2. 在一点筛图结果页点击“导入 Lightroom”。
@@ -279,7 +281,7 @@ CUDA 成品必须在具备 NVIDIA GPU 的 Windows 主机上完成真实推理门
 
 ## 🧪 评估与个性化训练
 
-当前源码新增质量准入、全局严格去重、大合影检测与人物身份修正。改动、优先级和验证限制见 [可靠性改进记录](docs/CULLING_RELIABILITY.md)。0 星表示“未入选”，具体原因区分技术问题与重复淘汰；人物修正后需重新扫描，人工锁定星级保留。
+v0.2.2 源码新增质量准入、全局严格去重、大合影检测与人物身份修正。改动、优先级和验证限制见 [可靠性改进记录](docs/CULLING_RELIABILITY.md)。0 星表示“未入选”，具体原因区分技术问题与重复淘汰；人物修正后需重新扫描，人工锁定星级保留。
 
 生成联系表与重复泄漏报告：
 

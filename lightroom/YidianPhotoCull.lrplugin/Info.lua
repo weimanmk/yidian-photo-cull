@@ -3,7 +3,7 @@ return {
     LrSdkMinimumVersion = 14.3,
     LrToolkitIdentifier = "com.yidian.photocull.lightroom",
     LrPluginName = "一点筛图",
-    VERSION = { major = 0, minor = 2, revision = 1, build = 1 },
+    VERSION = { major = 0, minor = 2, revision = 2, build = 1 },
     LrInitPlugin = "InitPlugin.lua",
     LrForceInitPlugin = true,
     LrShutdownPlugin = "ShutdownPlugin.lua",

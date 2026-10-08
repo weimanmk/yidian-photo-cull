@@ -6,7 +6,7 @@ const path = require('node:path')
 const { promisify } = require('node:util')
 
 const PLUGIN_ID = 'com.yidian.photocull.lightroom'
-const PLUGIN_VERSION = '0.2.1'
+const PLUGIN_VERSION = '0.2.2'
 const PLUGIN_DIRECTORY = 'YidianPhotoCull.lrplugin'
 const APP_PATHS_KEY = 'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\Lightroom.exe'
 

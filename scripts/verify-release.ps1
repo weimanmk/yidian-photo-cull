@@ -22,8 +22,8 @@ function Get-Sha256 {
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $package = Get-Content -LiteralPath (Join-Path $projectRoot "package.json") -Raw | ConvertFrom-Json
 $version = [string]$package.version
-if ($version -ne "0.2.1") {
-    throw "Expected v0.2.1, got $version"
+if ($version -ne "0.2.2") {
+    throw "Expected v0.2.2, got $version"
 }
 $releaseRoot = if ($ReleaseDirectory) { Resolve-Path -LiteralPath $ReleaseDirectory } else { Join-Path $projectRoot "release" }
 $unpacked = Join-Path $releaseRoot "win-unpacked"
