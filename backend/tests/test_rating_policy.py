@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from photocull.internal_models import (
     FaceObservation,
@@ -275,3 +276,127 @@ def test_model_failure_uses_stable_fallback_instead_of_aborting() -> None:
     assert sum(photo.stars == 3 for photo in group.photos) == 1
     assert report.rating_model_profile == "stable_fallback"
     assert "fixture failure" in report.rating_model_fallback_reason
+
+
+@pytest.mark.parametrize("issue", ["主体清晰度不足", "主要人物闭眼", "曝光偏差明显"])
+def test_decodable_severe_photo_never_becomes_primary(issue) -> None:
+    photo = make_photo("bad", 1, seed=1, score=90, issues=[issue])
+    report = assign_semantic_ratings([make_group("g", photo)], window_minutes=15)
+    assert photo.stars == 0
+    assert photo.rating_reason == "technical_reject"
+    assert photo.needs_review
+    assert report.primary_count == 0
+
+
+def test_all_low_quality_group_has_no_primary_even_on_model_fallback() -> None:
+    class FailingModel:
+        def predict(self, photos):
+            raise RatingModelError("unavailable")
+
+    photos = [make_photo(str(i), i, seed=i, score=5) for i in range(1, 5)]
+    report = assign_semantic_ratings([make_group("g", *photos)], window_minutes=15, model=FailingModel())
+    assert all(photo.stars == 0 for photo in photos)
+    assert all(photo.rating_reason == "technical_reject" for photo in photos)
+    assert report.primary_count == 0
+    assert report.primary_budget_shortfall > 0
+
+
+def test_primary_budget_does_not_reintroduce_technical_rejects() -> None:
+    photos = [make_photo(str(i), i, seed=i, score=90) for i in range(1, 9)]
+    for photo in photos[2:]:
+        photo.issues = ["主体清晰度不足"]
+    report = assign_semantic_ratings([make_group("g", *photos)], window_minutes=15, model=StubModel())
+    assert sum(photo.stars == 3 for photo in photos) == 2
+    assert all(photo.stars == 0 for photo in photos[2:])
+    assert report.primary_budget_shortfall == 3
+
+
+def test_only_available_bad_face_photo_is_flagged_coverage_not_primary() -> None:
+    photo = make_photo("only", 1, seed=1, score=5, person="人物 01", issues=["主体清晰度不足"])
+    report = assign_semantic_ratings([make_group("g", photo)], window_minutes=15, model=StubModel())
+    assert photo.stars == 2
+    assert photo.rating_reason == "person_stage_gap"
+    assert photo.needs_review
+    assert report.unresolved_coverage_keys == 0
+
+
+def test_uncertain_warning_is_reviewable_instead_of_hard_rejection() -> None:
+    photo = make_photo("profile", 1, seed=1, score=80, issues=["主要人物姿态异常"])
+    assign_semantic_ratings([make_group("g", photo)], window_minutes=15, model=StubModel())
+    assert photo.stars == 3
+    assert photo.needs_review
+
+
+def test_ordinary_reserve_cannot_pad_with_bad_photos() -> None:
+    photos = [make_photo(str(i), i, seed=i, score=80, person="人物 01") for i in range(1, 9)]
+    for photo in photos[5:]:
+        photo.issues = ["主体清晰度不足"]
+    report = assign_semantic_ratings([make_group("g", *photos)], window_minutes=15, model=StubModel())
+    assert all(photo.stars == 0 for photo in photos[5:])
+    assert report.coverage_reserve_count == 0
+
+
+def lock(photo, stars):
+    from photocull.rating_types import RatingOrigin, RatingReason, TIER_BY_STAR, apply_rating
+    apply_rating(photo, tier=TIER_BY_STAR[stars], origin=RatingOrigin.MANUAL,
+                 reason=RatingReason.MANUAL_OVERRIDE, locked=True)
+
+
+def test_locked_zero_does_not_consume_primary_seed_or_coverage_slot() -> None:
+    rejected = make_photo("manual-reject", 1, seed=1, score=99, person="人物 01")
+    alternate = make_photo("alternate", 2, seed=2, score=70, person="人物 01")
+    lock(rejected, 0)
+    report = assign_semantic_ratings([make_group("g", rejected, alternate)], window_minutes=15, model=StubModel())
+    assert rejected.stars == 0 and rejected.rating_locked
+    assert alternate.stars == 3
+    assert report.unresolved_coverage_keys == 0
+
+
+def test_locked_zero_only_coverage_candidate_reports_gap() -> None:
+    photo = make_photo("manual-reject", 1, seed=1, score=99, person="人物 01")
+    lock(photo, 0)
+    report = assign_semantic_ratings([make_group("g", photo)], window_minutes=15, model=StubModel())
+    assert photo.stars == 0 and photo.rating_locked
+    assert report.required_coverage_keys == 1
+    assert report.unresolved_coverage_keys == 1
+
+
+def test_locked_primary_wins_global_duplicate_conflict(monkeypatch) -> None:
+    from photocull.near_duplicates import DuplicateLayers
+    first = make_photo("first", 1, seed=1, score=90)
+    manual = make_photo("manual", 2, seed=1, score=5, issues=["主体清晰度不足"])
+    lock(manual, 3)
+    monkeypatch.setattr("photocull.rating_policy.build_duplicate_layers", lambda _groups: DuplicateLayers(
+        strict_cluster_by_photo={"first": "same", "manual": "same"},
+        beat_by_photo={"first": "a", "manual": "b"},
+    ))
+    report = assign_semantic_ratings([make_group("a", first), make_group("b", manual)],
+                                    window_minutes=15, model=StubModel())
+    assert manual.stars == 3 and manual.rating_locked
+    assert first.stars == 0
+    assert report.primary_duplicate_leaks == 0
+
+
+def test_global_duplicate_seeds_choose_better_candidate(monkeypatch) -> None:
+    from photocull.near_duplicates import DuplicateLayers
+    weak = make_photo("weak", 1, seed=1, score=60)
+    best = make_photo("best", 2, seed=1, score=95)
+    monkeypatch.setattr("photocull.rating_policy.build_duplicate_layers", lambda _groups: DuplicateLayers(
+        strict_cluster_by_photo={"weak": "same", "best": "same"},
+        beat_by_photo={"weak": "a", "best": "b"},
+    ))
+    report = assign_semantic_ratings([make_group("a", weak), make_group("b", best)],
+                                    window_minutes=15, model=StubModel())
+    assert best.stars == 3 and weak.stars == 0
+    assert report.primary_duplicate_leaks == 0
+
+
+def test_persisted_coverage_evidence_includes_primary_and_rejected_photos() -> None:
+    photos = [make_photo(str(i), i, seed=i, score=80, person="人物 01") for i in range(1, 9)]
+    lock(photos[-1], 0)
+    assign_semantic_ratings([make_group("g", *photos)], window_minutes=15, model=StubModel())
+    assert photos[0].stars == 3
+    assert photos[-1].stars == 0
+    assert all(photo.coverage_keys == [f"{photo.stage_id}:人物 01"] for photo in photos)
+    assert photos[0].coverage_person_ids == []
+    assert photos[-1].coverage_person_ids == []

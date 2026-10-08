@@ -136,3 +136,77 @@ def test_layer_ids_follow_capture_order_not_input_order(monkeypatch) -> None:
         "second": "group-00001:beat-0002",
         "third": "group-00001:beat-0003",
     }
+
+
+def test_identical_descriptors_across_distant_groups_share_global_cluster() -> None:
+    first = make_photo('original', 1)
+    copy = make_photo('copy', 10000)
+    groups = [make_group(first), make_group(copy)]
+    groups[1].id = 'distant-group'
+    layers = build_duplicate_layers(groups)
+    assert layers.strict_cluster_by_photo['original'] == layers.strict_cluster_by_photo['copy']
+    assert layers.beat_by_photo['original'] != layers.beat_by_photo['copy']
+
+
+def test_strict_clusters_do_not_merge_transitive_hash_chain() -> None:
+    a, b, c = [make_photo(name, index) for index, name in enumerate('abc')]
+    for photo, bits in [(a, 0), (b, 15), (c, 255)]:
+        photo.descriptor.phash = bits
+        photo.descriptor.dhash = bits
+    layers = build_duplicate_layers([make_group(a, b, c)])
+    assert layers.strict_cluster_by_photo['a'] == layers.strict_cluster_by_photo['b']
+    assert layers.strict_cluster_by_photo['a'] != layers.strict_cluster_by_photo['c']
+
+
+def test_unknown_person_cannot_bridge_conflicting_people() -> None:
+    a, b, c = make_photo('a', 1, 'one'), make_photo('b', 2), make_photo('c', 3, 'two')
+    b.faces = []
+    b.person_ids = []
+    layers = build_duplicate_layers([make_group(a, b, c)])
+    assert layers.strict_cluster_by_photo['a'] != layers.strict_cluster_by_photo['c']
+
+
+def test_similar_stage_at_different_moments_is_not_strict_duplicate() -> None:
+    a, b = make_photo('a', 1), make_photo('b', 30)
+    b.descriptor.phash = 3  # Very similar scene, but not the identical descriptor.
+    layers = build_duplicate_layers([make_group(a, b)])
+    assert layers.strict_cluster_by_photo['a'] != layers.strict_cluster_by_photo['b']
+
+
+def test_visible_eye_change_is_a_distinct_moment_even_with_matching_scene() -> None:
+    a, b = make_photo('a', 1), make_photo('b', 2)
+    a.faces[0].eye_state = 'Open'
+    b.faces[0].eye_state = 'Closed'
+    layers = build_duplicate_layers([make_group(a, b)])
+    assert layers.strict_cluster_by_photo['a'] != layers.strict_cluster_by_photo['b']
+
+
+def test_near_duplicates_cross_group_boundary_without_exact_hash_match() -> None:
+    a, b = make_photo('a', 1), make_photo('b', 2)
+    b.descriptor.phash = 3
+    groups = [make_group(a), make_group(b)]
+    groups[1].id = 'second'
+    layers = build_duplicate_layers(groups)
+    assert layers.strict_cluster_by_photo['a'] == layers.strict_cluster_by_photo['b']
+    assert layers == build_duplicate_layers(list(reversed(groups)))
+
+
+def test_distant_distinct_descriptors_do_not_require_all_pairs(monkeypatch) -> None:
+    import photocull.near_duplicates as duplicates
+    real_compare = duplicates.compare_photos
+    comparisons = []
+
+    def count(left, right):
+        comparisons.append((left.id, right.id))
+        return real_compare(left, right)
+
+    monkeypatch.setattr(duplicates, 'compare_photos', count)
+    photos = [make_photo(str(index), index * 100) for index in range(100)]
+    for index, photo in enumerate(photos):
+        photo.descriptor.phash = index
+    groups = [make_group(photo) for photo in photos]
+    for index, group in enumerate(groups):
+        group.id = str(index)
+    layers = build_duplicate_layers(groups)
+    assert len(set(layers.strict_cluster_by_photo.values())) == 100
+    assert len(comparisons) < 200

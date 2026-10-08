@@ -12,7 +12,7 @@ interface PhotoInspectorProps {
 }
 
 const tierLabels: Record<RatingTier, string> = {
-  waste: '废片',
+  waste: '未入选',
   valuable: '有价值',
   coverage: '人物×环节补位',
   primary: '精选',

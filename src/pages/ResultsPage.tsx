@@ -4,16 +4,18 @@ import { assetUrl } from '../api'
 import { Button } from '../components/ui/button'
 import PhotoGrid from '../features/results/photo-grid'
 import PhotoInspector from '../features/results/photo-inspector'
+import IdentityCorrectionDialog from '../features/results/identity-correction-dialog'
 import ResultsToolbar from '../features/results/results-toolbar'
 import useCullingShortcuts from '../features/results/use-culling-shortcuts'
 import { useResultsWorkspace } from '../features/results/use-results-workspace'
-import type { PhotoResult, PhotoStars, ScanResults } from '../types'
+import type { IdentityCorrectionRequest, PhotoResult, PhotoStars, ScanResults } from '../types'
 
 interface ResultsPageProps {
   results: ScanResults | null
   onRate: (photoId: string, stars: PhotoStars, locked: true) => void | Promise<void>
   onImportLightroom: () => void
   onExportFolder: () => void
+  onCorrectIdentities?: (request: IdentityCorrectionRequest) => Promise<void>
 }
 
 function PhotoPreview({ photo, label }: { photo: PhotoResult; label?: string }) {
@@ -29,7 +31,7 @@ function PhotoPreview({ photo, label }: { photo: PhotoResult; label?: string }) 
   )
 }
 
-export default function ResultsPage({ results, onRate, onImportLightroom, onExportFolder }: ResultsPageProps) {
+export default function ResultsPage({ results, onRate, onImportLightroom, onExportFolder, onCorrectIdentities }: ResultsPageProps) {
   if (!results) {
     return <main className="page page--empty-results"><h1>暂无结果</h1></main>
   }
@@ -40,11 +42,12 @@ export default function ResultsPage({ results, onRate, onImportLightroom, onExpo
       onRate={onRate}
       onImportLightroom={onImportLightroom}
       onExportFolder={onExportFolder}
+      onCorrectIdentities={onCorrectIdentities}
     />
   )
 }
 
-function ResultsWorkspace({ results, onRate, onImportLightroom, onExportFolder }: ResultsPageProps & { results: ScanResults }) {
+function ResultsWorkspace({ results, onRate, onImportLightroom, onExportFolder, onCorrectIdentities }: ResultsPageProps & { results: ScanResults }) {
   const workspace = useResultsWorkspace(results)
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false)
   const rateActive = useCallback((stars: PhotoStars) => {
@@ -119,6 +122,9 @@ function ResultsWorkspace({ results, onRate, onImportLightroom, onExportFolder }
       </div>
 
       <footer className="results-statusbar">
+        {onCorrectIdentities && <IdentityCorrectionDialog key={results.project_id} results={results} onSave={onCorrectIdentities} />}
+        {results.identity_rescan_required && <span role="status">人物身份已修正，请重新扫描以更新排名与覆盖报告。</span>}
+        {!!results.identity_correction_warnings?.length && <span role="alert">{results.identity_correction_warnings.join('；')}</span>}
         <span>{workspace.visiblePhotos.length} / {results.summary.total}</span>
         <span>{workspace.selectedIds.size} 已选择</span>
       </footer>

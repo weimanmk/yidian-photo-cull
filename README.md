@@ -39,7 +39,7 @@
 
 | | | |
 | --- | --- | --- |
-| **🧩 同场景归组**<br />融合视觉向量、拍摄时间与图像指纹，合并连拍、变焦和曝光变化。 | **👤 同人物优选**<br />联合人脸与人体证据，减少不同人物误合并和远景漏检。 | **⭐ 语义化星级**<br />3 星精选、2 星覆盖补位、1 星其他价值、0 星废片。 |
+| **🧩 同场景归组**<br />融合视觉向量、拍摄时间与图像指纹，合并连拍、变焦和曝光变化。 | **👤 同人物优选**<br />联合人脸与人体证据，减少不同人物误合并和远景漏检。 | **⭐ 语义化星级**<br />3 星精选、2 星覆盖补位、1 星其他价值、0 星未入选。 |
 | **🛡️ 覆盖保底**<br />检查人物×环节组合，避免某个人在某个环节被全部过滤。 | **📷 Lightroom 接力**<br />预检后写入星级，保护已有 4/5 星，并自动定位本次照片目录。 | **🔒 完全离线**<br />照片、人脸向量、项目记录和模型推理都留在本机。 |
 
 ## ✨ 核心能力
@@ -118,7 +118,7 @@ SHA256SUMS-CUDA.txt
 | ★★★ | 精选 | 主交付照片 |
 | ★★ | 人物×环节补位 | 保证人物与活动环节覆盖 |
 | ★ | 其他有价值 | 备选、记录性画面 |
-| 0 | 废片 | 不进入文件夹导出 |
+| 0 | 未入选（见具体原因） | 不进入文件夹导出 |
 
 人工修改星级后，筛选统计、Lightroom 写入和文件夹导出都会使用最新结果。Lightroom 中已有的 4 星和 5 星照片受保护，不会被降级。
 
@@ -279,6 +279,8 @@ CUDA 成品必须在具备 NVIDIA GPU 的 Windows 主机上完成真实推理门
 
 ## 🧪 评估与个性化训练
 
+当前源码新增质量准入、全局严格去重、大合影检测与人物身份修正。改动、优先级和验证限制见 [可靠性改进记录](docs/CULLING_RELIABILITY.md)。0 星表示“未入选”，具体原因区分技术问题与重复淘汰；人物修正后需重新扫描，人工锁定星级保留。
+
 生成联系表与重复泄漏报告：
 
 ```powershell
@@ -294,6 +296,21 @@ $env:PYTHONPATH = "backend"
   --reference-dir "C:/path/to/已修" `
   --output-dir "output/evaluation"
 ```
+
+按最终 3 星离线审计已保存项目（改为 `--minimum-stars 2` 审计 2+3 星）：
+
+```powershell
+$env:PYTHONPATH = "backend"
+python scripts/audit-duplicate-leakage.py --project-file "project.json" --minimum-stars 3 --pair-labels "pairs.json" --output "output/duplicate-audit.json"
+```
+
+`pairs.json` 使用独立人工判断，不从生产重复簇生成标签。例如：
+
+```json
+{"schema_version":1,"label_source":"human","labeler":"reviewer","pairs":[{"left_id":"photo-a","right_id":"photo-b","duplicate":true}]}
+```
+
+可省略 `--pair-labels`，此时只检查已有重复簇的一致性，不能据此宣称没有漏检重复。所有成对指标仅适用于已标注的照片对；请覆盖跨组、同组、不同动作和不同人物的正负样本。语义评估脚本 `evaluate-semantic-ratings.py` 同样支持 `--pair-labels`，并区分扫描来源与本次评估来源。缺少旧项目来源证据时显示未知，身份修正未重扫时拒绝评估。
 
 训练摄影师偏好模型：
 

@@ -30,6 +30,10 @@ export function useResultsWorkspace(results: ScanResults) {
     return Array.from(labels, ([id, label]) => ({ id, label }))
   }, [results.photos])
 
+  useEffect(() => {
+    if (personFilter !== 'all' && !people.includes(personFilter)) setPersonFilter('all')
+  }, [people, personFilter])
+
   const visiblePhotos = useMemo(() => results.photos.filter((photo) => {
     const starMatches = starFilters.size === 0 || starFilters.has(photo.stars)
     const personMatches = personFilter === 'all' || photo.person_ids.includes(personFilter)

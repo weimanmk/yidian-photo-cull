@@ -18,6 +18,9 @@ DELIVERY_TARGET_REDUCTION = 0.25
 LEARNED_ALPHA = 0.75
 GROUP_DEMOTE = 0.55
 DUPLICATE_DEMOTE = 0.10
+MIN_PRIMARY_SCORE = 55.0
+# Pose, noise and possible occlusion are uncertain warnings, not proof of a bad shot.
+PRIMARY_BLOCKING_ISSUES = {"主要人物闭眼", "主体清晰度不足", "曝光偏差明显"}
 
 
 def _is_decodable(photo: PhotoObservation) -> bool:
@@ -29,7 +32,16 @@ def _is_decodable(photo: PhotoObservation) -> bool:
 
 
 def _has_decisive_issue(photo: PhotoObservation) -> bool:
-    return any(issue in SEVERE_ISSUES or issue.startswith("文件读取失败") for issue in photo.issues)
+    return any(issue in PRIMARY_BLOCKING_ISSUES or issue.startswith("文件读取失败") for issue in photo.issues)
+
+
+def _quality_eligible(photo: PhotoObservation) -> bool:
+    return (
+        _is_decodable(photo)
+        and math.isfinite(photo.score)
+        and photo.score >= MIN_PRIMARY_SCORE
+        and not _has_decisive_issue(photo)
+    )
 
 
 def _rank_value(photo: PhotoObservation, fallback: int) -> int:
@@ -121,14 +133,30 @@ def _select_primary(
     learned: dict[str, float],
     stable: dict[str, float],
 ) -> tuple[set[str], int, int]:
-    selected: set[str] = set()
-    selected_clusters: set[str] = set()
+    locked_delivery = [photo for group in groups for photo in group.photos
+                       if photo.rating_locked and photo.stars >= 2]
+    selected = {photo.id for photo in locked_delivery if photo.stars == 3}
+    selected_clusters = {layers.strict_cluster_by_photo[photo.id] for photo in locked_delivery}
     group_selected = {group.id: 0 for group in groups}
     beat_selected: dict[str, int] = {}
-    eligible_ids = {photo.id for photo in photos}
+    eligible_ids = {photo.id for photo in photos if not photo.rating_locked and _quality_eligible(photo)}
+    for photo in locked_delivery:
+        group_selected[photo.group_id] += 1
+        beat_id = layers.beat_by_photo[photo.id]
+        beat_selected[beat_id] = beat_selected.get(beat_id, 0) + 1
 
-    for group in groups:
+    def seed_priority(group: PhotoGroupInternal) -> tuple[float, str]:
         seed = _seed_photo(group, learned, eligible_ids)
+        if seed is None:
+            return (float("inf"), group.id)
+        return (-(LEARNED_ALPHA * learned[seed.id] + (1.0 - LEARNED_ALPHA) * stable[seed.id]), group.id)
+
+    for group in sorted(groups, key=seed_priority):
+        if group_selected[group.id]:
+            continue
+        available = {photo.id for photo in group.photos
+                     if photo.id in eligible_ids and layers.strict_cluster_by_photo[photo.id] not in selected_clusters}
+        seed = _seed_photo(group, learned, available)
         if seed is None:
             continue
         selected.add(seed.id)
@@ -141,7 +169,7 @@ def _select_primary(
         len(selected),
         min(population_count, round(population_count * (1.0 - TARGET_REDUCTION))),
     )
-    by_id = {photo.id: photo for photo in photos}
+    by_id = {photo.id: photo for photo in photos if photo.id in eligible_ids}
     remaining = set(by_id) - selected
     while len(selected) < target_count:
         eligible = [
@@ -227,6 +255,7 @@ def _select_delivery_reserve(
                 if photo.id not in delivered
                 and not photo.rating_locked
                 and photo.stars < 2
+                and _quality_eligible(photo)
                 and keys_by_photo[photo.id]
                 and layers.strict_cluster_by_photo[photo.id] not in represented_clusters
             ),
@@ -292,7 +321,7 @@ def assign_semantic_ratings(
         photo.beat_id = layers.beat_by_photo[photo.id]
         reason = (
             RatingReason.TECHNICAL_REJECT
-            if not _is_decodable(photo) or _has_decisive_issue(photo)
+            if not _quality_eligible(photo)
             else RatingReason.REDUNDANT_REJECT
         )
         apply_rating(
@@ -300,6 +329,7 @@ def assign_semantic_ratings(
             tier=RatingTier.WASTE,
             origin=RatingOrigin.AI,
             reason=reason,
+            needs_review=not _quality_eligible(photo) or bool(photo.issues),
         )
 
     learned, stable, rating_model_profile, rating_model_fallback_reason = _learned_scores(
@@ -322,12 +352,13 @@ def assign_semantic_ratings(
             tier=RatingTier.PRIMARY,
             origin=RatingOrigin.AI,
             reason=RatingReason.PRIMARY_RANK,
+            needs_review=bool(by_id[photo_id].issues),
         )
     actual_primary_ids = {photo.id for photo in all_photos if photo.stars == 3}
 
     coverage = select_person_stage_coverage(
         groups,
-        primary_photo_ids=actual_primary_ids,
+        primary_photo_ids={photo.id for photo in all_photos if photo.stars >= 2},
         window_minutes=window_minutes,
     )
     for photo_id in coverage.selected_photo_ids:
@@ -372,9 +403,7 @@ def assign_semantic_ratings(
             photo
             for photo in group.photos
             if photo.stars < 2
-            and _is_decodable(photo)
-            and not _has_decisive_issue(photo)
-            and photo.score >= 55.0
+            and _quality_eligible(photo)
             and photo.strict_duplicate_cluster_id not in represented_clusters
             and not photo.rating_locked
         ]
@@ -394,14 +423,19 @@ def assign_semantic_ratings(
             tier=RatingTier.VALUABLE,
             origin=RatingOrigin.AI,
             reason=RatingReason.UNIQUE_MOMENT,
+            needs_review=bool(winner.issues),
         ):
             represented_clusters.add(winner.strict_duplicate_cluster_id)
 
+    evidence_keys = _person_stage_keys_by_photo(all_photos, coverage.eligible_people)
     for photo in all_photos:
+        # Persist observational evidence independently of selection so an audit
+        # can recompute both its denominator and the coverage of any star set.
+        photo.coverage_keys = list(evidence_keys[photo.id])
         photo.coverage_protected = photo.stars == 2 and photo.rating_origin == RatingOrigin.COVERAGE.value
         photo.coverage_person_ids = sorted(
             {key.split(":", 1)[1] for key in photo.coverage_keys if ":" in key}
-        )
+        ) if photo.coverage_protected else []
         photo.is_best_pick = photo.stars >= 2
 
     actual_primary_ids = {photo.id for photo in all_photos if photo.stars == 3}

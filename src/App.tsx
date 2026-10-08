@@ -11,7 +11,7 @@ import FolderExportDialog from './features/export/folder-export-dialog'
 import LightroomImportDialog from './features/lightroom/lightroom-import-dialog'
 import { loadAppearance, saveAppearance, stepUiScale, type Appearance } from './appearance'
 import { applySemanticRating } from './features/results/apply-semantic-rating'
-import type { EngineSettings, HealthResponse, PhotoStars, ProjectSummary, ScanResults, ScanStatus, ViewKey } from './types'
+import type { IdentityCorrectionRequest, EngineSettings, HealthResponse, PhotoStars, ProjectSummary, ScanResults, ScanStatus, ViewKey } from './types'
 
 const idleStatus: ScanStatus = {
   status: 'idle', phase: '等待', message: '等待开始', processed: 0, total: 0, progress: 0,
@@ -222,6 +222,13 @@ export default function App() {
       .catch(() => setError('星级已保存，但项目汇总刷新失败。'))
   }
 
+  async function correctIdentities(correction: IdentityCorrectionRequest) {
+    if (!results) throw new Error('请先载入项目')
+    const saved = await api.correctIdentities(results.project_id, correction)
+    setResults(current => current?.project_id === saved.project_id ? saved : current)
+    void refreshProjects().catch(() => setError('人物修正已保存，但项目列表刷新失败。'))
+  }
+
   async function saveSettings() {
     try {
       const next = await api.updateSettings(settings)
@@ -260,7 +267,7 @@ export default function App() {
         {error && <button className="global-notice" onClick={() => setError(null)}><CloudOff size={15} /><span>{error}</span><b>×</b></button>}
         {view === 'home' && <HomePage projects={projects} onStart={() => setView('cull')} onOpenProject={openProject} />}
         {view === 'cull' && <CullPage folder={folder} settings={settings} status={status} error={status.error} provider={settings.use_gpu ? ([health?.depth_ai, health?.face_ai, health?.body_ai].find((model) => model?.provider_source === 'actual')?.backend ?? '检测中') : 'CPU'} onChooseFolder={chooseFolder} onChangeSettings={(next) => setSettings((current) => ({ ...current, ...next }))} onStart={startScan} onCancel={async () => setStatus(await api.cancelScan())} onShowResults={() => setView('results')} />}
-        {view === 'results' && <ResultsPage results={results} onRate={ratePhoto} onImportLightroom={() => setLightroomDialogOpen(true)} onExportFolder={() => setFolderExportDialogOpen(true)} />}
+        {view === 'results' && <ResultsPage results={results} onRate={ratePhoto} onCorrectIdentities={correctIdentities} onImportLightroom={() => setLightroomDialogOpen(true)} onExportFolder={() => setFolderExportDialogOpen(true)} />}
         {view === 'settings' && <SettingsPage settings={settings} health={health} appearance={appearance} lightroom={lightroomSettings} repairingLightroom={repairingLightroom} onAppearanceChange={setAppearance} onChange={(next) => setSettings((current) => ({ ...current, ...next }))} onSave={saveSettings} onRestart={async () => { await window.desktop?.restartBackend(); window.location.reload() }} onRepairLightroom={repairLightroomPlugin} />}
         {results && (
           <>

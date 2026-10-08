@@ -11,6 +11,9 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
+from photocull.audit import audit_project, evaluation_provenance
+
+
 REFERENCE_EXTENSIONS = {
     ".jpg",
     ".jpeg",
@@ -70,6 +73,8 @@ def reference_stems(reference_dir: Path) -> set[str]:
 
 
 def validate_semantic_project(result: dict[str, Any]) -> None:
+    if result.get('identity_rescan_required'):
+        raise ValueError('人物身份已修正，请重新扫描后再评测')
     if (
         int(result.get("schema_version", 0)) != 2
         or result.get("rating_migration_status") != "native"
@@ -167,18 +172,19 @@ def evaluate_rating_set(
     leaks, leak_clusters, leak_pairs = _strict_cluster_metrics(photos_by_id, selected)
     rating_policy = result.get("rating_policy", {})
     required_coverage = int(rating_policy.get("required_coverage_keys", 0))
-    unresolved_coverage = int(rating_policy.get("unresolved_coverage_keys", 0))
-    person_stage_coverage = (
-        round((required_coverage - unresolved_coverage) / required_coverage, 4)
-        if required_coverage
-        else 1.0
-    )
     selected_coverage_keys = sorted(
         {
             str(key)
             for photo_id in selected
             for key in photos_by_id[photo_id].get("coverage_keys", [])
         }
+    )
+    # The selected set can differ from the saved scan's delivery set after manual
+    # edits or when auditing only 3 stars. Never reuse its unresolved count.
+    unresolved_coverage = max(0, required_coverage - len(selected_coverage_keys))
+    person_stage_coverage = (
+        round((required_coverage - unresolved_coverage) / required_coverage, 4)
+        if required_coverage else 1.0
     )
     eligible_total = len(decodable_ids)
     return {
@@ -203,6 +209,7 @@ def evaluate_rating_set(
         "required_person_stage_keys": required_coverage,
         "unresolved_person_stage_keys": unresolved_coverage,
         "person_stage_coverage": person_stage_coverage,
+        "coverage_metric_scope": "stored_photo_coverage_keys",
         "selected_coverage_keys": selected_coverage_keys,
     }
 
@@ -235,6 +242,7 @@ def build_report(
     project_file: Path,
     reference_dir: Path,
     rating_model_file: Path,
+    pair_labels_file: Path | None = None,
 ) -> dict[str, Any]:
     resolved_project = project_file.resolve()
     resolved_reference = reference_dir.resolve()
@@ -249,8 +257,16 @@ def build_report(
         if stem_key(_filename(photo)) in manual_stems
     }
     contract_errors = _semantic_contract_errors(result["photos"])
+    pair_labels = json.loads(pair_labels_file.read_text(encoding="utf-8")) if pair_labels_file else None
     return {
-        "format_version": 1,
+        "format_version": 2,
+        "provenance": evaluation_provenance(result, resolved_model),
+        "cluster_metric_scope": "stored_cluster_consistency_only",
+        "independent_pair_audit": ({
+            name: audit_project(result, minimum_stars=minimum, pair_labels=pair_labels)["independent_pair_audit"]
+            for name, minimum in (("three_star", 3), ("two_plus_three_star", 2))
+        } if pair_labels is not None else None),
+        "pair_labels_sha256": sha256(pair_labels_file) if pair_labels_file else None,
         "generated_at": datetime.now(UTC).isoformat(),
         "source_event": event_name,
         "project_id": str(result.get("project_id", "")),
@@ -262,8 +278,8 @@ def build_report(
         "rating_model_profile": inferred_rating_profile(result),
         "training_hashes": dict(model_payload.get("training_hashes", {})),
         "selection_parameters": dict(model_payload.get("selection_parameters", {})),
-        "runtime_fit": False,
-        "per_event_overrides": {},
+        "runtime_fit": result.get("scan_provenance", {}).get("runtime_fit") if isinstance(result.get("scan_provenance"), dict) else None,
+        "per_event_overrides": result.get("scan_provenance", {}).get("per_event_overrides") if isinstance(result.get("scan_provenance"), dict) else None,
         "reference_dir": str(resolved_reference),
         "reference_names_sha256": canonical_hash(manual_stems),
         "reference_stems": sorted(manual_stems),
@@ -308,17 +324,25 @@ def aggregate_reports(reports: list[dict[str, Any]]) -> dict[str, Any]:
         }
 
     model_hashes = sorted({str(report["rating_model_sha256"]) for report in reports})
+    scans = [report.get("provenance", {}).get("scan_provenance") for report in reports]
+    known_scans = bool(scans) and all(isinstance(scan, dict) for scan in scans)
+    scan_hashes = [scan.get("rating_model_sha256") for scan in scans] if known_scans else []
+    same_scan_model = len(set(scan_hashes)) == 1 if scan_hashes and all(scan_hashes) else None
+    fits = [scan.get("runtime_fit") for scan in scans] if known_scans else []
+    overrides = [scan.get("per_event_overrides") for scan in scans] if known_scans else []
     return {
-        "format_version": 1,
+        "format_version": 2,
         "events": [str(report["source_event"]) for report in reports],
         "project_hashes": {
             str(report["source_event"]): str(report["project_sha256"])
             for report in reports
         },
         "rating_model_hashes": model_hashes,
-        "same_frozen_model": len(model_hashes) == 1,
-        "no_runtime_fit": all(report.get("runtime_fit") is False for report in reports),
-        "no_per_event_overrides": all(not report.get("per_event_overrides") for report in reports),
+        "same_evaluator_model": len(model_hashes) == 1,
+        "same_frozen_model": same_scan_model,
+        "no_runtime_fit": all(value is False for value in fits) if fits and all(type(v) is bool for v in fits) else None,
+        "no_per_event_overrides": all(not value for value in overrides) if overrides and all(isinstance(v, dict) for v in overrides) else None,
+        "cluster_metric_scope": "stored_cluster_consistency_only",
         "semantic_contract_valid": all(report.get("semantic_contract_valid") is True for report in reports),
         "rating_sets": {
             "three_star": aggregate_set("three_star"),
@@ -341,7 +365,11 @@ def render_markdown(report: dict[str, Any]) -> str:
             f"# {report['source_event']} 语义星级评测",
             "",
             f"- 项目 SHA-256：`{report['project_sha256']}`",
-            f"- 模型 SHA-256：`{report['rating_model_sha256']}`",
+            f"- 当前评测器模型 SHA-256：`{report['rating_model_sha256']}`",
+            f"- 评测器 commit：`{report['provenance']['evaluation_commit']}`（工作区修改：{report['provenance']['evaluation_worktree_dirty']}）",
+            f"- 保存项目的扫描来源：{'已记录，见 JSON' if report['provenance']['scan_provenance'] else '未知'}",
+            "- 重复簇指标仅检查已存簇一致性；独立人工照片对指标见 JSON，未提供标注时为 null。",
+            "- 覆盖率按当前入选集合的已存 coverage_keys 重算；旧项目若缺键不能证明完整覆盖。",
             f"- 模型档案：`{report['rating_model_profile']}`",
             f"- 语义契约：{'通过' if report['semantic_contract_valid'] else '失败'}",
             "",
@@ -367,9 +395,9 @@ def render_aggregate_markdown(report: dict[str, Any]) -> str:
             "# v0.2.1 跨活动语义星级评测",
             "",
             f"- 活动：{'、'.join(report['events'])}",
-            f"- 冻结模型一致：{'通过' if report['same_frozen_model'] else '失败'}",
-            f"- 运行时拟合：{'无' if report['no_runtime_fit'] else '存在'}",
-            f"- 单活动参数覆盖：{'无' if report['no_per_event_overrides'] else '存在'}",
+            f"- 冻结模型一致：{'未知' if report['same_frozen_model'] is None else ('通过' if report['same_frozen_model'] else '失败')}",
+            f"- 运行时拟合：{'未知' if report['no_runtime_fit'] is None else ('无' if report['no_runtime_fit'] else '存在')}",
+            f"- 单活动参数覆盖：{'未知' if report['no_per_event_overrides'] is None else ('无' if report['no_per_event_overrides'] else '存在')}",
             f"- 语义契约：{'通过' if report['semantic_contract_valid'] else '失败'}",
             "",
             "| 集合 | 张数 | 组命中 | 人工召回 | 去除率 | 重复泄漏 | 人物×环节覆盖 |",
@@ -386,6 +414,7 @@ def main() -> int:
     parser.add_argument("--event")
     parser.add_argument("--project-file", type=Path)
     parser.add_argument("--reference-dir", type=Path)
+    parser.add_argument("--pair-labels", type=Path)
     parser.add_argument("--aggregate-input", type=Path, nargs="+")
     parser.add_argument(
         "--rating-model-file",
@@ -422,6 +451,7 @@ def main() -> int:
             project_file=args.project_file,
             reference_dir=args.reference_dir,
             rating_model_file=args.rating_model_file,
+            pair_labels_file=args.pair_labels,
         )
         json_path = output_dir / "semantic-ratings.json"
         markdown_path = output_dir / "semantic-ratings.md"
